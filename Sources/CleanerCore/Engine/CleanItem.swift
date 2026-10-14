@@ -36,6 +36,13 @@ public struct CleanItem: Codable, Equatable, Sendable, Identifiable {
     public var notes: [String]
     /// 大小由识别器给出（Docker、空间分布），扫描时不再遍历路径。
     public var sizedByDetector: Bool
+    public var projectRoot: String?
+    public var projectEvidence: ProjectEvidence?
+    public var sizeIncomplete: Bool?
+
+    public var isSelectable: Bool {
+        tier != .displayOnly && action.type != .noAction && blockers.allSatisfy(\.isAppRunning)
+    }
 
     public init(id: String, app: String, category: AppCategory, tier: CleanTier, title: String, paths: [String],
                 action: RuleAction, preconditions: RulePreconditions, copy: RuleCopy, notes: [String] = []) {

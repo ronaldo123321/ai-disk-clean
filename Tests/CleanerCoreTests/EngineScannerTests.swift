@@ -147,6 +147,10 @@ final class EngineScannerTests: XCTestCase {
                                     spaceMap: nil, checker: checker).scan()
         XCTAssertEqual(result.items.map(\.id), ["rule:a"])
         XCTAssertTrue(result.items[0].notes.contains { $0.contains("无法读取") })
+        XCTAssertEqual(result.items[0].sizeIncomplete, true)
+        XCTAssertFalse(result.items[0].isSelectable)
+        XCTAssertTrue(PlanBuilder.build(from: result).selectedIDs.isEmpty)
+        XCTAssertEqual(result.issues?.first?.path, home + "/Library/Caches/A/locked")
     }
 
     func testSizedByDetectorZeroBytesItemIsKept() {

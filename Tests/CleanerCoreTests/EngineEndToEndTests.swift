@@ -88,8 +88,8 @@ final class EngineEndToEndTests: XCTestCase {
         let scan = EngineScanner(context: context, detectors: [RuleDetector(rules: loaded.rules), ProjectArtifactDetector()],
                                  spaceMap: nil, checker: checker).scan()
         let plan = PlanBuilder.build(from: scan)
-        XCTAssertEqual(plan.selectedItems.map(\.id).sorted(), ["project:" + project, "rule:e2e-cache"])
-        XCTAssertEqual(plan.selectedItems.first { $0.id == "project:" + project }?.paths, [venv])
+        XCTAssertEqual(plan.selectedItems.map(\.id).sorted(), ["artifact:" + venv, "rule:e2e-cache"])
+        XCTAssertEqual(plan.selectedItems.first { $0.id == "artifact:" + venv }?.paths, [venv])
         XCTAssertEqual(plan.selectedItems.first { $0.id == "rule:e2e-cache" }?.paths, [cache])
 
         let report = try executor().run(plan.selectedItems)
@@ -144,5 +144,51 @@ final class EngineEndToEndTests: XCTestCase {
         XCTAssertEqual(restored.errors, [])
         XCTAssertEqual(try snapshot(inside), insideBefore)
         XCTAssertEqual(recovery.list(), [])
+    }
+
+    func testChangedProjectArtifactStaysInPlaceWhileSiblingCanBeRestored() throws {
+        let project = home + "/code/project"
+        let next = project + "/.next"
+        let deps = project + "/node_modules"
+        try TestEnv.write("{}", to: project + "/package.json")
+        try TestEnv.write("original", to: next + "/cache.bin")
+        try TestEnv.write("dependency", to: deps + "/a.js")
+        let runner = FakeProcessRunner()
+        func candidate(_ path: String) throws -> CleanItem {
+            var item = CleanItem(id: "artifact:" + path, app: "project", category: .dev, tier: .suggested,
+                title: path, paths: [path], action: .recover, preconditions: .empty,
+                copy: RuleCopy(what: "artifact", impact: "rebuild", regrows: nil))
+            item.projectRoot = project
+            item.projectEvidence = try ProjectProtection.capture(root: project, artifact: path, files: files, runner: runner, now: clock)
+            return item
+        }
+        let nextItem = try candidate(next)
+        let depsItem = try candidate(deps)
+        try TestEnv.write("changed!", to: next + "/cache.bin")
+        let report = try executor().run([nextItem, depsItem])
+        guard case .skipped = report.results[0].outcome else { return XCTFail("changed artifact executed") }
+        XCTAssertEqual(report.results[1].outcome, .done)
+        XCTAssertEqual(try String(contentsOfFile: next + "/cache.bin"), "changed!")
+        XCTAssertFalse(files.fileExists(deps))
+        XCTAssertTrue(recovery.restore(batchID: report.batchID).errors.isEmpty)
+        XCTAssertEqual(try String(contentsOfFile: deps + "/a.js"), "dependency")
+    }
+
+    func testNewCredentialBeforeExecutionNeverMovesArtifact() throws {
+        let project = home + "/code/key-project"
+        let target = project + "/target"
+        try TestEnv.write("[package]", to: project + "/Cargo.toml")
+        try TestEnv.write("compiled", to: target + "/binary")
+        var item = CleanItem(id: "artifact:" + target, app: "project", category: .dev, tier: .suggested,
+            title: "target", paths: [target], action: .recover, preconditions: .empty,
+            copy: RuleCopy(what: "build", impact: "rebuild", regrows: nil))
+        item.projectRoot = project
+        item.projectEvidence = try ProjectProtection.capture(root: project, artifact: target, files: files, runner: FakeProcessRunner(), now: clock)
+        try TestEnv.write("private-fixture", to: target + "/deploy/program-keypair.json")
+        let report = try executor().run([item])
+        guard case .skipped = report.results[0].outcome else { return XCTFail("credential directory executed") }
+        XCTAssertEqual(report.results[0].reason, .protected)
+        XCTAssertTrue(files.fileExists(target + "/deploy/program-keypair.json"))
+        XCTAssertTrue(recovery.list().isEmpty)
     }
 }

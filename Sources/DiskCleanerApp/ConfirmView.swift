@@ -7,6 +7,7 @@ struct ConfirmView: View {
     let onCancel: () -> Void
     let onStart: (Set<String>) -> Void
     @State private var consented: Set<String>
+    @State private var acknowledged = false
 
     init(summary: ConfirmationSummary, onCancel: @escaping () -> Void, onStart: @escaping (Set<String>) -> Void) {
         self.summary = summary
@@ -17,7 +18,10 @@ struct ConfirmView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("将清理 \(summary.items.count) 项，预计腾出约 \(Format.bytes(summary.estimatedBytes))").font(.title3.bold())
+            Text("确认这次清理 · \(summary.items.count) 项").font(.title3.bold())
+            Text("预计立即释放 \(Format.bytes(summary.immediateBytes)) · 移入恢复区 \(Format.bytes(summary.recoveryBytes))")
+            Text("移入恢复区仍占空间；到期只提醒，不自动删除。执行前逐项复核，变化或无法验证的项跳过。")
+                .font(.caption).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if !summary.recoverable.isEmpty {
@@ -44,12 +48,14 @@ struct ConfirmView: View {
                 }
             }
             .frame(maxHeight: 460)
+            Toggle("我已了解不可撤销操作与恢复区仍占空间的区别", isOn: $acknowledged)
             HStack {
                 Spacer()
                 Button("取消", action: onCancel).keyboardShortcut(.cancelAction)
                 Button("开始清理") { onStart(consented) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
+                    .disabled(!acknowledged)
             }
         }
         .padding(20)
@@ -58,7 +64,7 @@ struct ConfirmView: View {
 
     private func box(title: String, items: [CleanItem], color: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("\(title)　\(items.count) 项 · \(Format.bytes(items.reduce(0) { $0 + $1.reclaimableBytes }))").bold()
+            Text("\(title)　\(items.count) 项").bold()
             ForEach(items) { item in
                 HStack {
                     Text(item.title)
@@ -66,7 +72,7 @@ struct ConfirmView: View {
                         Text(command.joined(separator: " ")).font(.caption.monospaced()).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(Format.bytes(item.reclaimableBytes)).monospacedDigit().foregroundStyle(.secondary)
+                    Text(Format.bytes(item.action.type == .command ? item.reclaimableBytes : item.apparentBytes)).monospacedDigit().foregroundStyle(.secondary)
                 }
                 .font(.callout)
             }

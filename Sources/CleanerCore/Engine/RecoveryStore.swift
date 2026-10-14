@@ -97,7 +97,7 @@ public final class RecoveryStore {
     private func removeBatch(_ name: String, bytes: Int64) throws {
         try audit?.appendRequired(AuditEvent(op: "purge.intent", detail: name, bytes: bytes))
         try files.removeItem(atPath: directory + "/" + name)
-        audit?.append(AuditEvent(op: "purge.done", detail: name, bytes: bytes))
+        audit?.append(AuditEvent(op: "purge.done", detail: name, bytes: bytes, batchID: name))
     }
 
     static func isValidID(_ id: String) -> Bool {
@@ -245,7 +245,7 @@ public final class RecoveryStore {
     /// `itemIDs` 为 nil 是整批还原的唯一方式。非 nil 时只处理 `itemID` 落在集合内、且状态为
     /// `.stored`/`.pending` 的条目；一个都匹配不上（包括传入空集合）就直接返回错误，不动任何条目、不搬动任何文件。
     /// 没有记录 `itemID` 的条目（旧数据或未走按项路径写入）只能随整批还原，任何非 nil 的 `itemIDs` 都会跳过它们。
-    public func restore(batchID: String, itemIDs: Set<String>? = nil) -> (restored: [String], errors: [String]) {
+    public func restore(batchID: String, itemIDs: Set<String>? = nil, destinationDirectory: String? = nil) -> (restored: [String], errors: [String]) {
         let lease: OperationLease?
         do { lease = try OperationLease.acquire(files: files) } catch { return ([], [String(describing: error)]) }
         defer { withExtendedLifetime(lease) {} }
@@ -260,11 +260,24 @@ public final class RecoveryStore {
         var errors: [String] = []
         let safety = PathSafety(home: files.homeDirectory(), files: files)
         let home = files.homeDirectory()
+        if let destinationDirectory {
+            guard itemIDs?.count == 1,
+                  Self.originalPathProblem(destinationDirectory, home: home, recoveryDirectory: directory) == nil,
+                  ancestorsAreSafe(destinationDirectory + "/placeholder", home: home),
+                  let attributes = files.attributesIfExist(atPath: destinationDirectory),
+                  attributes.isDirectory, !attributes.isSymbolicLink,
+                  attributes.device == files.attributesIfExist(atPath: home)?.device,
+                  (try? safety.assertAllowed(destinationDirectory)) != nil,
+                  (try? files.childrenOfDirectory(atPath: destinationDirectory).isEmpty) == true else {
+                return ([], ["另存恢复需要家目录内同卷、安全且为空的目录；每次只能恢复一项。"])
+            }
+        }
 
         for index in batch.entries.indices {
             let entry = batch.entries[index]
             if entry.state == .restored || entry.state == .cancelled { continue }
             if let itemIDs, !(entry.itemID.map(itemIDs.contains) ?? false) { continue }
+            let destination = destinationDirectory.map { $0 + "/" + (entry.originalPath as NSString).lastPathComponent } ?? entry.originalPath
 
             let copyExists = files.fileExists(entry.storedPath)
             if entry.state == .pending && !copyExists {
@@ -309,24 +322,28 @@ public final class RecoveryStore {
                 continue
             }
             do {
-                _ = try safety.assertAllowed(entry.originalPath)
+                _ = try safety.assertAllowed(destination)
             } catch {
                 errors.append("还原目标不安全：\(entry.originalPath)（\(error)）")
                 continue
             }
-            guard ancestorsAreSafe(entry.originalPath, home: home) else {
+            guard ancestorsAreSafe(destination, home: home) else {
                 errors.append("还原目标路径上存在符号链接：" + entry.originalPath)
                 continue
             }
-            guard !files.fileExists(entry.originalPath) else {
+            guard !files.fileExists(destination) else {
                 errors.append("原位置已有内容，不覆盖：" + entry.originalPath)
                 continue
             }
 
             do {
-                try files.createDirectory(atPath: (entry.originalPath as NSString).deletingLastPathComponent, intermediate: true)
-                try files.moveItem(fromPath: entry.storedPath, toPath: entry.originalPath)
-                restored.append(entry.originalPath)
+                try audit?.appendRequired(AuditEvent(op: "restore.intent", detail: destination, batchID: batchID,
+                                                     itemTitle: entry.itemTitle, paths: [entry.originalPath]))
+                try files.createDirectory(atPath: (destination as NSString).deletingLastPathComponent, intermediate: true)
+                try files.moveItem(fromPath: entry.storedPath, toPath: destination)
+                restored.append(destination)
+                audit?.append(AuditEvent(op: "restore.done", detail: destination, bytes: entry.bytes, batchID: batchID,
+                                        itemTitle: entry.itemTitle, paths: [entry.originalPath], action: destinationDirectory == nil ? "restored" : "alternate"))
                 batch.entries[index].state = .restored
                 do {
                     try write(batch)
@@ -392,13 +409,15 @@ public final class RecoveryBatchWriter {
         self.batch = batch
     }
 
-    public func admit(path: String, bytes: Int64, itemID: String? = nil, itemTitle: String? = nil) throws {
+    public func admit(path: String, bytes: Int64, itemID: String? = nil, itemTitle: String? = nil,
+                      expectedIdentity: FileAttributes? = nil) throws {
         let files = store.files
         // 与读取清单时的校验同一套规则，且在落盘 pending 记录与 move 之前：通不过就什么都不做。
         if let problem = RecoveryStore.originalPathProblem(path, home: files.homeDirectory(), recoveryDirectory: store.directory) {
             throw problem
         }
         guard let identity = files.attributesIfExist(atPath: path) else { throw RecoveryError.missing(path) }
+        if let expectedIdentity, !expectedIdentity.matches(identity) { throw RecoveryError.moveVerificationFailed(path) }
         guard !identity.isSymbolicLink else { throw RecoveryError.symlink(path) }
         guard EnginePathChecks.isCanonical(path, files: files) else { throw RecoveryError.symlink(path) }
         if let recovery = files.attributesIfExist(atPath: store.directory), recovery.device != identity.device {
@@ -425,6 +444,13 @@ public final class RecoveryBatchWriter {
         try store.write(batch)
 
         try files.createDirectory(atPath: slot, intermediate: true)
+        if let expectedIdentity {
+            guard let current = files.attributesIfExist(atPath: path), expectedIdentity.matches(current) else {
+                batch.entries.removeLast()
+                try store.write(batch)
+                throw RecoveryError.moveVerificationFailed(path)
+            }
+        }
         try files.moveItem(fromPath: path, toPath: storedPath)
 
         guard let movedIdentity = files.attributesIfExist(atPath: storedPath), identity.matches(movedIdentity) else {

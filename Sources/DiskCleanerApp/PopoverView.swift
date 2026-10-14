@@ -47,7 +47,8 @@ struct PopoverView: View {
     private func recommendation(_ plan: CleanPlan) -> some View {
         let selected = plan.selectedItems
         VStack(alignment: .leading, spacing: 6) {
-            Text("推荐方案：可腾出约 \(Format.bytes(plan.estimatedReclaimableBytes))").bold()
+            Text("预计立即释放 \(Format.bytes(plan.estimatedImmediateBytes))").bold()
+            Text("移入恢复区 \(Format.bytes(plan.recoveryMoveBytes))（仍占空间）").font(.caption)
             Text(CleanTier.allCases.filter { $0 != .displayOnly }.compactMap { tier in
                 let count = selected.filter { $0.tier == tier }.count
                 return count > 0 ? "\(tier.title) \(count) 项" : nil
@@ -55,7 +56,7 @@ struct PopoverView: View {
             if !plan.appsToQuit.isEmpty {
                 Text("需要先退出：" + plan.appsToQuit.map(\.name).joined(separator: "、")).font(.caption).foregroundStyle(.orange)
             }
-            Button("一键清理（约 \(Format.bytes(plan.estimatedReclaimableBytes))）", action: openMainAndClean)
+            Button("查看推荐确认单", action: openMainAndClean)
                 .buttonStyle(.borderedProminent)
                 .disabled(selected.isEmpty || model.phase == .confirming || model.phase == .finished || model.recoveryBusy)
         }

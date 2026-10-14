@@ -11,7 +11,21 @@ struct DiskCleanerApp: App {
 
 /// 菜单栏图标用 NSStatusItem（MenuBarExtra 在 macOS 26 上曾不显示图标）。
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let model = AppModel(engine: LiveEngineService())
+    let model: AppModel = {
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["DCLEAN_UI_TEST_HOME"] {
+            let url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+            let parent = url.deletingLastPathComponent()
+            // Explicit debug-only, freshly generated fixture; never fall back to the real home.
+            let temporaryRoot = URL(fileURLWithPath: "/private/tmp").resolvingSymlinksInPath()
+            precondition(parent.deletingLastPathComponent().path == temporaryRoot.path
+                         && parent.lastPathComponent.hasPrefix("dclean-ui-") && url.lastPathComponent == "home"
+                         && FileManager.default.fileExists(atPath: parent.appendingPathComponent(".ui-fixture").path))
+            return AppModel(engine: LiveEngineService(homeOverride: url.path), preferences: nil)
+        }
+        #endif
+        return AppModel(engine: LiveEngineService(), preferences: .standard)
+    }()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var window: NSWindow?
@@ -72,6 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             w.title = "清理大师V2"
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["DCLEAN_UI_TEST_HOME"] != nil { w.title = "清理大师 · 临时目录验收" }
+            #endif
             w.isReleasedWhenClosed = false   // 关闭只是隐藏，执行在后台继续
             w.contentView = NSHostingView(rootView: MainView(model: model))
             w.center()

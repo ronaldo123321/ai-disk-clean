@@ -11,6 +11,8 @@ public struct ConfirmationSummary: Equatable {
     public var appsUserMustQuit: [QuitApp]
 
     public var estimatedBytes: Int64 { items.reduce(0) { $0 + $1.reclaimableBytes } }
+    public var immediateBytes: Int64 { irreversible.reduce(0) { $0 + $1.reclaimableBytes } }
+    public var recoveryBytes: Int64 { recoverable.reduce(0) { $0 + $1.apparentBytes } }
 
     public static func make(items: [CleanItem], isRunning: (String) -> Bool) -> ConfirmationSummary {
         let actionable = items.filter { $0.tier != .displayOnly && $0.action.type != .noAction }

@@ -61,17 +61,31 @@ public struct ProjectArtifactDetector: Detector {
     func findArtifacts(_ context: DetectContext) -> [String] {
         var found: [String] = []
         let forbiddenRoots = context.safety.treeForbiddenRoots
-        var stack: [(String, Int)] = [(context.home, 0)]
+        var stack: [(String, Int)] = (context.options.projectRoots ?? [context.home]).map { (context.safety.normalize($0), 0) }
+        var visited = Set<String>()
         while let entry = stack.popLast() {
             if context.isCancelled { break }
             let (dir, depth) = entry
-            guard depth < maxDepth, let children = try? context.files.childrenOfDirectory(atPath: dir) else { continue }
+            guard visited.insert(dir).inserted,
+                  !context.options.excludedPaths.contains(where: { PathSafety.isInside(dir, root: context.safety.normalize($0)) }) else { continue }
+            guard dir == context.home || ((try? context.safety.assertAllowed(dir)) != nil && EnginePathChecks.isCanonical(dir, files: context.files)) else {
+                context.diagnostics.record(dir, "扫描范围受保护或路径无法验证")
+                continue
+            }
+            guard depth < maxDepth else {
+                context.diagnostics.record(dir, "已达扫描深度上限，未检查更深目录")
+                continue
+            }
+            let children: [String]
+            do { children = try context.files.childrenOfDirectory(atPath: dir) }
+            catch { context.diagnostics.record(dir, "目录无法读取：\(error)"); continue }
             for child in children {
                 let name = (child as NSString).lastPathComponent
                 guard let attributes = context.files.attributesIfExist(atPath: child),
                       attributes.isDirectory, !attributes.isSymbolicLink else { continue }
                 // 家目录下的隐藏目录是各工具自己的安装与数据目录（如 ~/.hermes、~/.nvm），不当项目处理
-                if depth == 0 && (name.hasPrefix(".") || Self.skippedHomeChildren.contains(name)) { continue }
+                if dir == context.home && (name.hasPrefix(".") || Self.skippedHomeChildren.contains(name)) { continue }
+                if context.options.excludedPaths.contains(where: { PathSafety.isInside(child, root: context.safety.normalize($0)) }) { continue }
                 if name == ".git" || name.hasSuffix(".app") { continue }
                 if forbiddenRoots.contains(where: { PathSafety.isInside(child, root: $0) }) { continue }
                 if Self.artifactNames.contains(name) {
@@ -253,7 +267,9 @@ public struct ProjectArtifactDetector: Detector {
                let modified = attributes.modificationDate {
                 newest = max(newest ?? modified, modified)
             }
-            guard let children = try? context.files.childrenOfDirectory(atPath: parent) else { continue }
+            let children: [String]
+            do { children = try context.files.childrenOfDirectory(atPath: parent) }
+            catch { context.diagnostics.record(parent, "项目活跃时间无法完整检查：\(error)"); continue }
             for child in children {
                 guard let attributes = context.files.attributesIfExist(atPath: child), !attributes.isSymbolicLink,
                       attributes.isRegularFile, let modified = attributes.modificationDate else { continue }
@@ -269,10 +285,16 @@ public struct ProjectArtifactDetector: Detector {
         while let entry = stack.popLast() {
             if context.isCancelled { break }
             let (dir, depth) = entry
-            guard let children = try? context.files.childrenOfDirectory(atPath: dir) else { continue }
+            let children: [String]
+            do { children = try context.files.childrenOfDirectory(atPath: dir) }
+            catch { context.diagnostics.record(dir, "源码活跃时间无法完整检查：\(error)"); continue }
             for child in children {
                 let name = (child as NSString).lastPathComponent
-                guard let attributes = context.files.attributesIfExist(atPath: child), !attributes.isSymbolicLink else { continue }
+                guard let attributes = context.files.attributesIfExist(atPath: child) else {
+                    context.diagnostics.record(child, "项目内容属性无法读取")
+                    continue
+                }
+                guard !attributes.isSymbolicLink else { continue }
                 if attributes.isDirectory {
                     guard !Self.artifactNames.contains(name), name != ".git" else { continue }
                     if let modified = attributes.modificationDate {

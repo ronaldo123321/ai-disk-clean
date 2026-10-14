@@ -162,7 +162,7 @@ public final class PlanExecutor {
         let freeBefore = files.volumeSummary(atPath: home)?.freeBytes
         // 审计先行：run.start 与每项 intent 写不进去就不做任何改动。
         do {
-            try audit.appendRequired(AuditEvent(op: "run.start", detail: "\(batchID) \(items.count) 项"))
+            try audit.appendRequired(AuditEvent(op: "run.start", detail: "\(batchID) \(items.count) 项", batchID: batchID))
         } catch {
             throw ExecutorRunError.auditUnavailable(String(describing: error))
         }
@@ -176,7 +176,8 @@ public final class PlanExecutor {
         for (index, item) in items.enumerated() {
             if cancellation?.isCancelled == true {
                 let outcome = RunOutcome.skipped("已停止，未执行")
-                audit.append(AuditEvent(op: "run.item.result", detail: "\(item.id) \(outcome)", bytes: 0))
+                audit.append(AuditEvent(op: "run.item.result", detail: "\(item.id) \(outcome)", bytes: 0,
+                                       batchID: batchID, itemTitle: item.title, paths: item.paths, action: item.action.type.rawValue))
                 let result = ItemRunResult(itemID: item.id, title: item.title, outcome: outcome,
                                            estimatedBytes: item.reclaimableBytes, recoveredBytes: 0, reason: .cancelled)
                 results.append(result)
@@ -204,7 +205,8 @@ public final class PlanExecutor {
             }
             // 命令项释放了多少执行器无从得知：记 nil，不记 0（0 读起来像「什么也没释放」）
             audit.append(AuditEvent(op: "run.item.result", detail: "\(item.id) \(outcome)",
-                                    bytes: item.action.type == .command ? nil : recovered))
+                                    bytes: item.action.type == .command ? nil : recovered,
+                                    batchID: batchID, itemTitle: item.title, paths: item.paths, action: item.action.type.rawValue))
             if outcome == .done, let regrows = item.copy.regrows { regrowNotes.append("\(item.title)：\(regrows)") }
             let result = ItemRunResult(itemID: item.id, title: item.title, outcome: outcome,
                                        estimatedBytes: item.reclaimableBytes, recoveredBytes: recovered, reason: reason)
@@ -214,7 +216,7 @@ public final class PlanExecutor {
         let report = RunReport(batchID: batchID, startedAt: started, finishedAt: now(), freeBefore: freeBefore,
                                freeAfter: files.volumeSummary(atPath: home)?.freeBytes, results: results,
                                serviceIssues: serviceIssues, regrowNotes: regrowNotes)
-        audit.append(AuditEvent(op: "run.finish", detail: batchID, bytes: report.measuredFreedBytes))
+        audit.append(AuditEvent(op: "run.finish", detail: batchID, bytes: report.measuredFreedBytes, batchID: batchID))
         return report
     }
 
@@ -335,6 +337,24 @@ public final class PlanExecutor {
     /// 任何一个路径命中禁区或是符号链接，整项跳过。recoverOlderThan 中不是普通文件或已不够旧的路径单独剔除；
     /// 剔除后（含已不存在的）一个都不剩才整项跳过。同一项里嵌套在另一路径内的路径只保留外层（外层移走时内层随之移走）。
     func revalidate(_ item: CleanItem) -> Result<[String], SkipReason> {
+        if (item.id.hasPrefix("project:") || item.id.hasPrefix("artifact:")), item.projectRoot == nil {
+            return .failure(SkipReason(message: "项目缺少产物级扫描证据，请重新扫描", reason: .gone))
+        }
+        if let root = item.projectRoot {
+            guard let evidence = item.projectEvidence, item.paths.count == 1,
+                  now().timeIntervalSince(evidence.capturedAt) <= 600 else {
+                return .failure(SkipReason(message: "缺少有效的扫描证据，请重新扫描", reason: .gone))
+            }
+            do {
+                let fresh = try ProjectProtection.capture(root: root, artifact: item.paths[0], files: files, runner: runner, now: now())
+                guard fresh.digest == evidence.digest else {
+                    return .failure(SkipReason(message: "目录或工程证据已变化，保持原位，请重新扫描", reason: .gone))
+                }
+            } catch {
+                return .failure(SkipReason(message: String(describing: error), reason: .protected))
+            }
+        }
+        if item.sizeIncomplete == true { return .failure(SkipReason(message: "扫描不完整，保持原位", reason: .unavailable)) }
         guard item.action.type != .command else { return .success([]) }
         var valid: [String] = []
         var seen = Set<String>()
@@ -381,6 +401,10 @@ public final class PlanExecutor {
             }
             return (.done, nil)
         case .recover, .recoverOlderThan:
+            // Recheck after any quit/service wait, immediately before entering the recovery transaction.
+            if item.projectRoot != nil, case .failure(let reason) = revalidate(item) {
+                return (.skipped(reason.message), reason.reason)
+            }
             // 恢复区建不起来就记住第一次的错误，后续项直接失败，不反复重试。
             if let writerError { return (.failed("无法创建恢复区：" + writerError), .recoveryFailed) }
             if writer == nil {
@@ -401,7 +425,8 @@ public final class PlanExecutor {
                 }
                 let bytes = sizer.measure([path]).apparent
                 do {
-                    try writer!.admit(path: path, bytes: bytes, itemID: item.id, itemTitle: item.title)
+                    try writer!.admit(path: path, bytes: bytes, itemID: item.id, itemTitle: item.title,
+                                      expectedIdentity: item.projectEvidence?.rootIdentity)
                     recovered += bytes
                     moved += 1
                 } catch {

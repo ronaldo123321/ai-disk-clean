@@ -102,13 +102,14 @@ func printPlan(_ plan: CleanPlan, disk: DiskSummary?) {
             let mark = tier == .displayOnly ? "  " : (plan.selectedIDs.contains(item.id) ? "☑ " : "☐ ")
             let size = tier == .displayOnly
                 ? human(item.apparentBytes)
-                : "预计可释放 \(human(item.reclaimableBytes))（表观 \(human(item.apparentBytes))）"
+                : item.action.type == .command ? "预计立即释放 \(human(item.reclaimableBytes))"
+                : "移入恢复区 \(human(item.apparentBytes))（仍占空间）"
             print("\(mark)\(item.title)  \(size)  [\(item.id)]")
             for blocker in item.blockers { print("     ⚠ " + blocker.message) }
             for note in item.notes { print("     · " + note) }
         }
     }
-    print("\n已选预计可释放：\(human(plan.estimatedReclaimableBytes))")
+    print("\n预计立即释放：\(human(plan.estimatedImmediateBytes))；移入恢复区：\(human(plan.recoveryMoveBytes))（仍占空间）")
     let quit = plan.appsToQuit
     let selfQuit = quit.filter { !$0.canQuitForUser }
     let toolQuit = quit.filter(\.canQuitForUser)
@@ -126,7 +127,7 @@ func printReport(_ report: RunReport) {
         case .failed(let why): print("✗ \(result.title)：\(why)")
         }
     }
-    if let freed = report.measuredFreedBytes { print("\n实际释放：\(human(max(freed, 0)))（按执行前后可用空间计算）") }
+    if let freed = report.measuredFreedBytes { print("\n卷可用空间\(freed >= 0 ? "增加" : "减少")：\(human(abs(freed)))（前后观测值，受其他程序写入影响）") }
     if report.recoveryBytes > 0 {
         print("移入恢复区：\(human(report.recoveryBytes))，清空恢复区后才会释放（批次 \(report.batchID)）")
     }
@@ -148,6 +149,8 @@ struct CleanPreviewJSON: Encodable {
     let items: [CleanItem]
     let selectedIDs: [String]
     let estimatedReclaimableBytes: Int64
+    let estimatedImmediateBytes: Int64
+    let recoveryMoveBytes: Int64
     let appsToQuit: [QuitAppJSON]
 }
 
@@ -219,6 +222,8 @@ case "clean":
                 items: plan.items,
                 selectedIDs: plan.selectedIDs.sorted(),
                 estimatedReclaimableBytes: plan.estimatedReclaimableBytes,
+                estimatedImmediateBytes: plan.estimatedImmediateBytes,
+                recoveryMoveBytes: plan.recoveryMoveBytes,
                 appsToQuit: plan.appsToQuit.map { QuitAppJSON(name: $0.name, bundleID: $0.bundleID, canQuitForUser: $0.canQuitForUser) })
             printJSON(preview)
         } else {

@@ -6,14 +6,19 @@ public struct DetectContext {
     public let runner: ProcessRunner
     public let now: Date
     public let cancellation: OperationCancellation?
+    public let options: ScanOptions
+    public let diagnostics: ScanDiagnostics
 
     public init(files: FileOperations, safety: PathSafety, runner: ProcessRunner, now: Date,
-                cancellation: OperationCancellation? = nil) {
+                cancellation: OperationCancellation? = nil, options: ScanOptions = ScanOptions(),
+                diagnostics: ScanDiagnostics = ScanDiagnostics()) {
         self.files = files
         self.safety = safety
         self.runner = runner
         self.now = now
         self.cancellation = cancellation
+        self.options = options
+        self.diagnostics = diagnostics
     }
 
     public var home: String { files.homeDirectory() }
@@ -32,6 +37,7 @@ public enum ScanStep: Equatable, Sendable {
     case sizing(done: Int, total: Int)
     case spaceMap
     case checkingBlockers
+    case preview([CleanItem])
 
     public var title: String {
         switch self {
@@ -39,6 +45,7 @@ public enum ScanStep: Equatable, Sendable {
         case .sizing(let done, let total): return "正在计算大小（\(done)/\(total)）"
         case .spaceMap: return "正在查看其他大目录"
         case .checkingBlockers: return "正在检查占用"
+        case .preview(let items): return "已发现 \(items.count) 项，正在验证（暂不可清理）"
         }
     }
 }

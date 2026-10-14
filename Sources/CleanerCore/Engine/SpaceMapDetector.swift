@@ -30,9 +30,23 @@ public struct SpaceMapDetector {
         }
         var items: [CleanItem] = []
         for root in roots {
-            guard let children = try? files.childrenOfDirectory(atPath: root) else { continue }
+            let children: [String]
+            do { children = try files.childrenOfDirectory(atPath: root) }
+            catch {
+                if !Sizer.isVanished(error) { context.diagnostics.record(root, "目录无法读取：\(error)") }
+                continue
+            }
             for child in children {
                 if context.isCancelled { return items }
+                // Never re-enter an excluded subtree via the legacy large-directory inventory.
+                if context.options.excludedPaths.contains(where: {
+                    let path = context.safety.normalize($0)
+                    return isInsideCI(child, path) || isInsideCI(path, child)
+                }) { continue }
+                if root == home, let scopes = context.options.projectRoots,
+                   !scopes.contains(where: { isInsideCI(child, context.safety.normalize($0)) || isInsideCI(context.safety.normalize($0), child) }) {
+                    continue
+                }
                 guard !excluded.contains(child),
                       let attributes = files.attributesIfExist(atPath: child), attributes.isDirectory, !attributes.isSymbolicLink,
                       EnginePathChecks.isCanonical(child, files: files),
@@ -42,7 +56,10 @@ public struct SpaceMapDetector {
                 let coveredInside = dedupedCovered.filter { isInsideCI($0.key, child) }.values.reduce(0, +)
                 var unreadable = false
                 let remaining = files.apparentSize(of: child, cancellation: context.cancellation,
-                                                   onUnreadable: { _, _ in unreadable = true }) - coveredInside
+                                                   onUnreadable: { path, error in
+                                                       unreadable = true
+                                                       context.diagnostics.record(path, "占用统计不完整：\(error)")
+                                                   }) - coveredInside
                 guard remaining >= threshold else { continue }
                 var item = CleanItem(
                     id: "space:" + child, app: "未识别", category: .other, tier: .displayOnly,
@@ -51,7 +68,7 @@ public struct SpaceMapDetector {
                     copy: RuleCopy(what: "规则之外的目录，工具不知道它能否清理",
                                    impact: "只展示占用，可在 Finder 中自行查看", regrows: nil))
                 if coveredInside > 0 { item.notes.append("已扣除其中已列出的清理项") }
-                if unreadable { item.notes.append("部分子目录无法读取（可能需要完全磁盘访问权限），大小可能偏小") }
+                if unreadable { item.notes.append("部分子目录无法读取，大小不完整"); item.sizeIncomplete = true }
                 item.apparentBytes = remaining
                 item.sizedByDetector = true
                 items.append(item)

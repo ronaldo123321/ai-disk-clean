@@ -8,6 +8,7 @@ public struct RecoveryOverview: Equatable {
         public var bytes: Int64
         /// 条目记录了所属清理项才能单独还原；否则只能整批还原。
         public var restorableIndividually: Bool
+        public var originalPaths: [String] = []
     }
 
     public struct Batch: Equatable, Identifiable {
@@ -33,6 +34,7 @@ public struct RecoveryOverview: Equatable {
             var titles: [String: String] = [:]
             var bytes: [String: Int64] = [:]
             var individual: [String: Bool] = [:]
+            var paths: [String: [String]] = [:]
             for entry in batch.entries where entry.state == .stored || entry.state == .pending {
                 let key = entry.itemID ?? entry.originalPath
                 if titles[key] == nil {
@@ -41,12 +43,13 @@ public struct RecoveryOverview: Equatable {
                     individual[key] = entry.itemID != nil
                 }
                 bytes[key, default: 0] += entry.bytes
+                paths[key, default: []].append(entry.originalPath)
             }
             guard !order.isEmpty else { return nil }
             let age = Int(now.timeIntervalSince(batch.createdAt) / 86_400)
             return Batch(id: batch.id, createdAt: batch.createdAt, bytes: occupied(batch),
                          daysLeft: max(retentionDays - age, 0),
-                         items: order.map { Item(id: $0, title: titles[$0]!, bytes: bytes[$0]!, restorableIndividually: individual[$0]!) })
+                         items: order.map { Item(id: $0, title: titles[$0]!, bytes: bytes[$0]!, restorableIndividually: individual[$0]!, originalPaths: paths[$0] ?? []) })
         }
         return RecoveryOverview(batches: rows, orphans: orphans)
     }

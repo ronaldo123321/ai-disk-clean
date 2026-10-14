@@ -36,7 +36,10 @@ public struct Sizer {
             var stack = [root]
             while let path = stack.popLast() {
                 if cancellation?.isCancelled == true { break }
-                guard let attributes = files.attributesIfExist(atPath: path) else { continue }
+                guard let attributes = files.attributesIfExist(atPath: path) else {
+                    result.unreadable.append(path)
+                    continue
+                }
                 if attributes.isDirectory && !attributes.isSymbolicLink {
                     do {
                         stack.append(contentsOf: try files.childrenOfDirectory(atPath: path))

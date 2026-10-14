@@ -7,12 +7,21 @@ public struct AuditEvent: Codable, Equatable, Sendable {
     public var op: String
     public var detail: String
     public var bytes: Int64?
+    public var batchID: String?
+    public var itemTitle: String?
+    public var paths: [String]?
+    public var action: String?
 
-    public init(ts: Date = Date(), op: String, detail: String, bytes: Int64? = nil) {
+    public init(ts: Date = Date(), op: String, detail: String, bytes: Int64? = nil,
+                batchID: String? = nil, itemTitle: String? = nil, paths: [String]? = nil, action: String? = nil) {
         self.ts = ts
         self.op = op
         self.detail = detail
         self.bytes = bytes
+        self.batchID = batchID
+        self.itemTitle = itemTitle
+        self.paths = paths
+        self.action = action
     }
 }
 

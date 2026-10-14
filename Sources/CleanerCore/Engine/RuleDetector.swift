@@ -18,7 +18,12 @@ public struct RuleDetector: Detector {
         guard let star = components.firstIndex(of: "*") else { return [] }
         let parent = "/" + components[..<star].joined(separator: "/")
         let rest = components[(star + 1)...].joined(separator: "/")
-        guard let children = try? context.files.childrenOfDirectory(atPath: parent) else { return [] }
+        let children: [String]
+        do { children = try context.files.childrenOfDirectory(atPath: parent) }
+        catch {
+            if !Sizer.isVanished(error) { context.diagnostics.record(parent, "规则目录无法读取：\(error)") }
+            return []
+        }
         return children
             .filter { child in
                 guard let attributes = context.files.attributesIfExist(atPath: child) else { return false }
@@ -54,7 +59,10 @@ public struct RuleDetector: Detector {
         }
         if rule.action.type == .recoverOlderThan, let days = rule.action.olderThanDays {
             let cutoff = context.now.addingTimeInterval(-Double(days) * 86_400)
-            paths = paths.flatMap { (try? context.files.childrenOfDirectory(atPath: $0)) ?? [] }.filter { child in
+            paths = paths.flatMap { path -> [String] in
+                do { return try context.files.childrenOfDirectory(atPath: path) }
+                catch { context.diagnostics.record(path, "历史文件目录无法读取：\(error)"); return [] }
+            }.filter { child in
                 guard let attributes = context.files.attributesIfExist(atPath: child), attributes.isRegularFile,
                       !attributes.isSymbolicLink, let modified = attributes.modificationDate, modified < cutoff
                 else { return false }

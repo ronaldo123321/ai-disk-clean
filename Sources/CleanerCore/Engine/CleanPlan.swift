@@ -12,6 +12,13 @@ public struct CleanPlan: Codable, Equatable, Sendable {
     public var selectedItems: [CleanItem] { items.filter { selectedIDs.contains($0.id) } }
 
     public var estimatedReclaimableBytes: Int64 { selectedItems.reduce(0) { $0 + $1.reclaimableBytes } }
+    public var estimatedImmediateBytes: Int64 {
+        selectedItems.filter { $0.action.type == .command }.reduce(0) { $0 + $1.reclaimableBytes }
+    }
+    public var recoveryMoveBytes: Int64 {
+        selectedItems.filter { $0.action.type == .recover || $0.action.type == .recoverOlderThan }
+            .reduce(0) { $0 + $1.apparentBytes }
+    }
 
     public func items(in tier: CleanTier) -> [CleanItem] { items.filter { $0.tier == tier } }
 
@@ -55,7 +62,7 @@ public enum PlanBuilder {
     public static func build(from scan: ScanResult) -> CleanPlan {
         guard !scan.cancelled else { return CleanPlan(items: scan.items, selectedIDs: []) }
         let selected = scan.items.filter { item in
-            item.tier.selectedByDefault && item.blockers.allSatisfy(\.isAppRunning)
+            item.tier.selectedByDefault && item.isSelectable
         }.map(\.id)
         return CleanPlan(items: scan.items, selectedIDs: Set(selected))
     }

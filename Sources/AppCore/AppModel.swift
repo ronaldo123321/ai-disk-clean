@@ -36,6 +36,14 @@ public final class AppModel: ObservableObject {
     /// 还原或永久清空进行中：期间忽略其他恢复区操作，也不开始扫描或清理
     @Published public private(set) var recoveryBusy = false
     @Published public private(set) var message: String?
+    @Published public private(set) var scanPreview: [CleanItem] = []
+    @Published public private(set) var scanOptions: ScanOptions
+    @Published public private(set) var history: [AuditEvent] = []
+    @Published public private(set) var spaceListing: SpaceListing?
+    @Published public private(set) var spaceBusy = false
+    @Published public private(set) var spaceError: String?
+    private var spaceCancellation: OperationCancellation?
+    private let preferences: UserDefaults?
 
     private let engine: EngineServicing
     private let now: () -> Date
@@ -48,20 +56,72 @@ public final class AppModel: ObservableObject {
     private var selectionAfterScan: Set<String>?
     private var runningItems: [CleanItem] = []
     /// 清理完成后置位：清理前的扫描结果不能再拿来确认或执行，直到一次未取消的扫描完成
-    private var needsRescan = false
+    @Published public private(set) var rescanReason: String?
+    private var needsRescan: Bool { rescanReason != nil }
 
     public init(engine: EngineServicing,
                 now: @escaping () -> Date = { Date() },
+                preferences: UserDefaults? = nil,
                 background: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.global(qos: .userInitiated).async(execute: $0) },
                 main: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }) {
         self.engine = engine
         self.now = now
         self.background = background
         self.main = main
+        self.preferences = preferences
+        self.scanOptions = preferences?.data(forKey: "scanOptions.v1")
+            .flatMap { try? JSONDecoder().decode(ScanOptions.self, from: $0) } ?? ScanOptions()
     }
 
     public var plan: CleanPlan? { scanResult.map { CleanPlan(items: $0.items, selectedIDs: selectedIDs) } }
-    public var defaultPlan: CleanPlan? { scanResult.map(PlanBuilder.build(from:)) }
+    public var defaultPlan: CleanPlan? {
+        scanResult.map { result in
+            var plan = PlanBuilder.build(from: result)
+            plan.selectedIDs = Set(plan.selectedItems.filter { !isKept($0) }.map(\.id))
+            return plan
+        }
+    }
+    public var requiresRescan: Bool { needsRescan }
+    public func selectionUnavailableReason(_ item: CleanItem) -> String? {
+        if needsRescan { return "需重新扫描后才能勾选 · 见上方原因" }
+        if phase != .ready { return "当前操作尚未完成，请等待完成后再选择" }
+        if isKept(item) { return "已长期保留 · 请到「扫描范围」移除保留设置" }
+        if !item.isSelectable {
+            if let blocker = item.blockers.first { return "无法验证或受保护：\(blocker.message) · 请查看右侧详情" }
+            return "仅展示占用，不提供清理 · 请查看右侧说明"
+        }
+        return nil
+    }
+    public var canEditScope: Bool { ![.scanning, .executing, .confirming].contains(phase) && !recoveryBusy }
+
+    public func isKept(_ item: CleanItem) -> Bool {
+        item.paths.contains { path in scanOptions.keptPaths.contains { PathSafety.isInside(path, root: $0) || PathSafety.isInside($0, root: path) } }
+    }
+
+    public func setScanOptions(_ options: ScanOptions) {
+        guard canEditScope else { return }
+        guard !scanOptions.hasSameScope(as: options, home: homeDirectory) else { return }
+        scanOptions = options
+        if let data = try? JSONEncoder().encode(options) { preferences?.set(data, forKey: "scanOptions.v1") }
+        rescanReason = "扫描范围或保留设置已更改，当前列表仍是更改前的结果。请重新扫描后再勾选。"
+        selectedIDs = []
+        confirmation = nil
+    }
+
+    public func keep(_ item: CleanItem) {
+        guard canEditScope else { return }
+        var options = scanOptions
+        options.keptPaths = Array(Set(options.keptPaths + item.paths)).sorted()
+        scanOptions = options
+        if let data = try? JSONEncoder().encode(options) { preferences?.set(data, forKey: "scanOptions.v1") }
+        selectedIDs.subtract(Set((scanResult?.items ?? []).filter { isKept($0) }.map(\.id)))
+    }
+
+    public func select(_ ids: Set<String>, selected: Bool) {
+        guard phase == .ready, !needsRescan else { return }
+        let allowed = Set((scanResult?.items ?? []).filter { ids.contains($0.id) && $0.isSelectable && !isKept($0) }.map(\.id))
+        if selected { selectedIDs.formUnion(allowed) } else { selectedIDs.subtract(ids) }
+    }
     public var isStale: Bool {
         guard let scanResult, !needsRescan else { return true }
         return now().timeIntervalSince(scanResult.generatedAt) > Self.staleAfter
@@ -81,6 +141,8 @@ public final class AppModel: ObservableObject {
     }
 
     public func clearMessage() { message = nil }
+    public var homeDirectory: String { engine.homeDirectory }
+    public var isIsolated: Bool { engine.isIsolated }
 
     // MARK: 扫描
 
@@ -95,9 +157,14 @@ public final class AppModel: ObservableObject {
         scanCancellation = cancellation
         phase = .scanning
         scanStep = nil
+        scanPreview = []
+        let options = scanOptions
         background { [engine] in
             do {
-                let result = try engine.scan(onStep: { step in self.main { self.scanStep = step } }, cancellation: cancellation)
+                let result = try engine.scan(options: options, onStep: { step in self.main {
+                    guard self.phase == .scanning else { return }
+                    if case .preview(let items) = step { self.scanPreview = items } else { self.scanStep = step }
+                } }, cancellation: cancellation)
                 self.main { self.finishScan(result) }
             } catch {
                 self.main { self.failScan(error) }
@@ -111,17 +178,20 @@ public final class AppModel: ObservableObject {
         scanCancellation = nil
         scanStep = nil
         if result.cancelled {
+            rescanReason = "本次扫描已取消，当前列表保留上次结果，暂不能勾选。请重新扫描并等待完成。"
+            selectedIDs = []
+            message = "扫描已取消。部分结果不能执行，请重新扫描。"
             confirmAfterScan = false
             selectionAfterScan = nil
             phase = scanResult == nil ? .idle : .ready
             return
         }
         scanResult = result
-        needsRescan = false
-        selectedIDs = PlanBuilder.build(from: result).selectedIDs
+        rescanReason = nil
+        selectedIDs = defaultPlan?.selectedIDs ?? []
         if let kept = selectionAfterScan {
             selectionAfterScan = nil
-            selectedIDs = Set(result.items.filter { $0.tier != .displayOnly && kept.contains($0.id) }.map(\.id))
+            selectedIDs = Set(result.items.filter { $0.isSelectable && !isKept($0) && kept.contains($0.id) }.map(\.id))
         }
         phase = .ready
         if confirmAfterScan {
@@ -136,13 +206,15 @@ public final class AppModel: ObservableObject {
         confirmAfterScan = false
         selectionAfterScan = nil
         message = String(describing: error)
+        rescanReason = "本次扫描未成功，当前列表保留上次结果。请查看错误后重新扫描：\(error)"
+        selectedIDs = []
         phase = scanResult == nil ? .idle : .ready
     }
 
     // MARK: 方案与确认
 
     public func toggle(_ id: String) {
-        guard phase == .ready, let item = scanResult?.items.first(where: { $0.id == id }), item.tier != .displayOnly else { return }
+        guard phase == .ready, !needsRescan, let item = scanResult?.items.first(where: { $0.id == id }), item.isSelectable, !isKept(item) else { return }
         if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }
     }
 
@@ -253,7 +325,7 @@ public final class AppModel: ObservableObject {
             main {
                 self.report = report
                 self.progress.currentTitle = nil
-                self.needsRescan = true
+                self.rescanReason = "清理已改变文件状态，当前列表是清理前的结果。请重新扫描后再选择。"
                 self.phase = .finished
                 self.refreshRecovery()
             }
@@ -287,21 +359,57 @@ public final class AppModel: ObservableObject {
 
     // MARK: 恢复区
 
+    public func browseSpace(_ path: String) {
+        guard canEditScope else { return }
+        spaceCancellation?.cancel()
+        let cancellation = OperationCancellation()
+        spaceCancellation = cancellation
+        spaceBusy = true
+        spaceError = nil
+        let options = scanOptions
+        background { [engine] in
+            do {
+                let listing = try engine.browseSpace(path, options: options, cancellation: cancellation)
+                self.main {
+                    guard self.spaceCancellation === cancellation else { return }
+                    self.spaceListing = listing
+                    self.spaceBusy = false
+                }
+            } catch {
+                self.main {
+                    guard self.spaceCancellation === cancellation else { return }
+                    self.spaceError = String(describing: error)
+                    self.spaceBusy = false
+                }
+            }
+        }
+    }
+    public func cancelSpaceBrowse() {
+        spaceCancellation?.cancel()
+        spaceCancellation = nil
+        spaceBusy = false
+    }
+
     public func refreshRecovery() {
         background { [engine, now] in
             let overview = RecoveryOverview.make(batches: engine.recoveryBatches(), orphans: engine.recoveryOrphans(),
                                                  occupied: engine.recoveryOccupied, now: now())
-            self.main { self.recovery = overview }
+            let history = engine.history()
+            self.main { self.recovery = overview; self.history = history }
         }
     }
 
-    public func restore(batchID: String, itemIDs: Set<String>?) {
+    public func restore(batchID: String, itemIDs: Set<String>?, destinationDirectory: String? = nil) {
         guard phase != .executing, phase != .scanning, !recoveryBusy else { return }
         recoveryBusy = true
         background { [engine] in
-            let result = engine.restore(batchID: batchID, itemIDs: itemIDs)
+            let result = engine.restore(batchID: batchID, itemIDs: itemIDs, destinationDirectory: destinationDirectory)
             self.main {
                 self.recoveryBusy = false
+                if !result.restored.isEmpty {
+                    self.rescanReason = "文件已恢复，当前列表尚未更新。请重新扫描后再选择。"
+                    self.selectedIDs = []
+                }
                 self.message = result.errors.isEmpty
                     ? "已还原 \(result.restored.count) 个位置"
                     : "部分未能还原：\n" + result.errors.joined(separator: "\n")

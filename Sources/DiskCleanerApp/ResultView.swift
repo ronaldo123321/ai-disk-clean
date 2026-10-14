@@ -11,14 +11,14 @@ struct ResultView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let measured = summary.report.measuredFreedBytes {
-                        Text("已腾出 \(Format.bytes(max(measured, 0)))").font(.title2.bold())
+                        Text("卷可用空间\(measured >= 0 ? "增加" : "减少") \(Format.bytes(abs(measured)))").font(.title2.bold())
                     } else {
-                        Text("已腾出：未能测得").font(.title2.bold())
+                        Text("卷可用空间变化：未能测得").font(.title2.bold())
                     }
-                    Text("按清理前后可用空间计算；完成 \(summary.doneCount) 项").foregroundStyle(.secondary)
+                    Text("前后观测值会受其他程序写入影响，不等于本工具独立释放量；完成 \(summary.doneCount) 项").foregroundStyle(.secondary)
                     if summary.report.recoveryBytes > 0 {
                         HStack {
-                            Text("恢复区里新增 \(Format.bytes(summary.report.recoveryBytes))，\(RecoveryStore.retentionDays) 天后到期；清空后可再腾出这些空间")
+                            Text("移入恢复区 \(Format.bytes(summary.report.recoveryBytes))，仍占空间；\(RecoveryStore.retentionDays) 天后提醒。清空后的释放量需另行观测。")
                             Button("查看恢复区") { showRecovery = true }
                         }
                     }
