@@ -41,7 +41,7 @@ DiskCleaner 已有规则、风险分档、确认、恢复区和审计基础。�
 | 空间 | 已用／可用、硬链接感知估算、卷可用空间前后差 | 首页把恢复区移动也算作「可腾出」；不是完整磁盘可视化 |
 | 保护 | 系统／隐私／凭据等保护；自定义保护路径存储 | 当前 GUI 缺少「始终保留」入口；保护与不扫描不是同一语义 |
 
-本地关键证据：[项目检测](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/ProjectArtifactDetector.swift)、[计划界面](/Users/gaobo/disk-cleaner/Sources/DiskCleanerApp/PlanView.swift)、[规则包](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/RulePack.json)、[执行器](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/PlanExecutor.swift)、[恢复实现](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/RecoveryStore.swift)。
+本地关键证据：[项目检测](../../Sources/CleanerCore/Engine/ProjectArtifactDetector.swift)、[计划界面](../../Sources/DiskCleanerApp/PlanView.swift)、[规则包](../../Sources/CleanerCore/Engine/RulePack.json)、[执行器](../../Sources/CleanerCore/Engine/PlanExecutor.swift)、[恢复实现](../../Sources/CleanerCore/Engine/RecoveryStore.swift)。
 
 有两点不能误读：七天是恢复批次的到期阈值，不是七天后自动删除；恢复目录的摘要基于路径、类型、大小、inode 等元数据，不是每个文件内容的字节级哈希。
 
@@ -162,7 +162,7 @@ MangoDisk 覆盖综合清理、大文件、重复文件、空间分析、卸载�
 
 恢复区清空后的潜在释放量也要考虑硬链接；不要承诺「清空后必然腾出移动体积」。当前 Sizer 有硬链接处理，但不同清理项简单相加还不是全计划级去重。
 
-证据：[累加口径](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/CleanPlan.swift:14)、[菜单栏文案](/Users/gaobo/disk-cleaner/Sources/DiskCleanerApp/PopoverView.swift:50)、[结果页](/Users/gaobo/disk-cleaner/Sources/DiskCleanerApp/ResultView.swift:13)。
+证据：[累加口径](../../Sources/CleanerCore/Engine/CleanPlan.swift:14)、[菜单栏文案](../../Sources/DiskCleanerApp/PopoverView.swift:50)、[结果页](../../Sources/DiskCleanerApp/ResultView.swift:13)。
 
 ### 2. 项目产物的扫描证据没有完整带到执行时
 
@@ -172,13 +172,13 @@ GUI 有十分钟过期重扫机制；执行器也检查路径与符号链接；�
 
 建议保存轻量候选证据，执行前复核归属、身份和用户内容；验证失败时跳过或要求重新扫描。优先补受控 Git 跟踪检查与嵌套仓库保护，再做 Codex 专项。不要用「有 lockfile」替代可重建性证明，尤其自建包、本地安装依赖和离线环境。
 
-证据：[项目生成](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/ProjectArtifactDetector.swift:124)、[执行前复核](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/PlanExecutor.swift:337)、[移动阶段身份检查](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/RecoveryStore.swift:395)。
+证据：[项目生成](../../Sources/CleanerCore/Engine/ProjectArtifactDetector.swift:124)、[执行前复核](../../Sources/CleanerCore/Engine/PlanExecutor.swift:337)、[移动阶段身份检查](../../Sources/CleanerCore/Engine/RecoveryStore.swift:395)。
 
 ### 3. 扫描不完整不能看起来像没发现垃圾
 
 当前大小测量会注明部分不可读，但发现阶段存在 `try?` 跳过，GUI 也未呈现规则加载问题。应区分：没有命中、未扫描、无权限、规则失效、工具不可用、用户排除。先给简短可操作的提示，诊断详情可展开。
 
-证据：[扫描流程](/Users/gaobo/disk-cleaner/Sources/CleanerCore/Engine/EngineScanner.swift:37)、[规则加载与 GUI 服务](/Users/gaobo/disk-cleaner/Sources/AppCore/EngineService.swift:54)。
+证据：[扫描流程](../../Sources/CleanerCore/Engine/EngineScanner.swift:37)、[规则加载与 GUI 服务](../../Sources/AppCore/EngineService.swift:54)。
 
 ## 七、建议优先级与验收方式
 
