@@ -85,9 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            w.title = "清理大师V2"
+            w.title = "AI工具清理大师"
             #if DEBUG
-            if ProcessInfo.processInfo.environment["DCLEAN_UI_TEST_HOME"] != nil { w.title = "清理大师 · 临时目录验收" }
+            if ProcessInfo.processInfo.environment["DCLEAN_UI_TEST_HOME"] != nil { w.title = "AI工具清理大师 · 临时目录验收" }
             #endif
             w.isReleasedWhenClosed = false   // 关闭只是隐藏，执行在后台继续
             w.contentView = NSHostingView(rootView: MainView(model: model))
@@ -118,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 meaning = "未扫描"
             }
         }
-        let label = "清理大师，\(meaning)"
+        let label = "AI工具清理大师，\(meaning)"
         statusItem.button?.toolTip = label
         statusItem.button?.setAccessibilityLabel(label)
     }

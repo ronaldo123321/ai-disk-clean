@@ -1,133 +1,143 @@
-# 清理大师（DiskCleaner）
+# AI工具清理大师
 
-给重度使用 AI 编程工具的 Mac 用户准备的磁盘清理工具。
+**专为 Cursor、Claude Code、Codex 等 AI 编程工具用户打造的 Mac 磁盘清理工具。**
+找出闲置项目里的 `node_modules` / `.venv` / `target`、包管理器缓存、模型文件和 AI 工具缓存。能还原的先移进恢复区，7 天内随时可以还原。
 
-Vibe coding 会留下大量中间产物：各语言的包缓存、闲置项目里的 `node_modules` / `.venv` / `target`、IDE 与 AI 工具的缓存、Docker 镜像……清理大师把它们找出来，按风险分档，**默认只清理确定安全的部分，能还原的先放进恢复区保留 7 天**。
+[![下载最新版](https://img.shields.io/github/v/release/ronaldo123321/ai-disk-clean?label=%E4%B8%8B%E8%BD%BD&color=2ea44f)](https://github.com/ronaldo123321/ai-disk-clean/releases/latest)
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)
+![Apple 芯片 + Intel](https://img.shields.io/badge/Apple%20%E8%8A%AF%E7%89%87%20%2B%20Intel-%E9%80%9A%E7%94%A8-blue)
+[![MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
-- 菜单栏常驻，点一下看磁盘占用和推荐方案
-- 主窗口按「档位」或「应用」查看每一项：是什么、删了有什么影响、会不会自动长回来
-- 清理前弹出确认单，写明哪些可还原、哪些不可还原、需要先退出哪些应用
-- 所有操作写入审计日志
-- 附带命令行工具 `dclean`，默认只读
+<!-- 截图 / 动图待补：扫描 → 确认单 → 恢复区。用临时目录造的演示数据截图，不要截真实项目名和路径。 -->
 
-> 目前只支持 macOS 13 及以上。
+## 为什么做这个
+
+Vibe coding 半年，磁盘悄悄被吃掉几十 GB：每个试过的项目都留着一份 `node_modules` 或 `.venv`，pnpm、uv、Homebrew 的缓存越积越多，Cursor、Claude 桌面端、Chrome 内置模型各自又占好几 GB。
+
+通用清理工具什么都扫，但不认识这些东西，也不敢替你判断一个项目还用不用。AI工具清理大师只做这一件事：**把 AI 编程留下的垃圾找出来，讲清楚每一项是什么、删了有什么影响，并且让你后悔时还能还原。**
+
+## 安全承诺
+
+- **默认可还原**：项目产物和应用缓存先移进恢复区，保留 7 天，可以按项或整批还原，还原时不会覆盖原位置已有的内容。
+- **不碰源码**：只清理依赖与构建产物。产物里有 Git 跟踪的文件、`.env`、密钥文件或疑似源码，就直接保护起来，不让勾选。
+- **逐项复核**：执行前把每一项和扫描时的状态再比一遍，有变化就跳过。
+- **不可还原的操作会单独标出**：比如 `brew cleanup`、`npm cache clean` 这类工具自带的命令，在确认单里用橙色列出，你勾选「我已了解」之后才能开始。
+- **完全离线**：不联网，不上传任何数据，也不收集使用统计。
+- **全程留痕**：清理、还原、永久清空都写入本机审计日志，审计写不进去就不执行。
 
 ## 安装
 
-需要 Xcode 命令行工具（Swift 5.10 或更新）：
+需要 macOS 13 或更新版本，Apple 芯片和 Intel 芯片都支持。
+
+### 方式一：一行命令安装（推荐）
 
 ```bash
-xcode-select --install
+curl -fsSL https://raw.githubusercontent.com/ronaldo123321/ai-disk-clean/main/Scripts/install.sh | bash
 ```
 
-克隆并构建：
+它会下载最新版并装到 `~/Applications/AI工具清理大师.app`，装完自动打开。以后更新也是同一条命令（更新前先从菜单栏退出应用）。
+
+### 方式二：手动下载
+
+1. 在 [Releases](https://github.com/ronaldo123321/ai-disk-clean/releases/latest) 下载 `AI-Disk-Clean-macos.zip`，解压后把 `AI工具清理大师.app` 拖进「应用程序」。
+2. 本项目没有经过苹果公证，第一次打开会提示「无法验证开发者」：
+   - **macOS 15 及以上**：先双击一次，然后打开「系统设置 → 隐私与安全性」，在页面下方点「仍要打开」，输入密码确认。
+   - **macOS 13、14**：在「应用程序」里右键点它，选「打开」，再点「打开」。
+
+   以后打开就不会再提示了。不放心的话可以用方式三，自己从源码构建。
+
+### 方式三：从源码构建
+
+需要 Xcode（编译能同时运行在 Apple 芯片和 Intel 上的版本需要完整的 Xcode）：
 
 ```bash
 git clone https://github.com/ronaldo123321/ai-disk-clean.git
 cd ai-disk-clean
-Scripts/make-v2-app.sh
+Scripts/install-local.sh
 ```
 
-脚本会用 release 模式构建，并安装到 `~/Applications/清理大师V2.app`（本地临时签名）。之后在「应用程序」里打开，或：
+### 命令行工具（可选）
+
+命令行工具 `dclean` 已经放在应用里，建一个链接就能直接用：
 
 ```bash
-open ~/Applications/清理大师V2.app
+sudo mkdir -p /usr/local/bin
+sudo ln -sf ~/Applications/AI工具清理大师.app/Contents/MacOS/dclean /usr/local/bin/dclean
 ```
 
-更新时拉取新代码后重新执行脚本即可，**记得先退出正在运行的旧版本再打开**。安装位置和 bundle id 都是固定的，更新后已授予的系统权限会保留。从更早使用旧 bundle id 的版本升级时，需要重新授予一次。
-
-命令行工具不需要安装，直接用 SwiftPM 运行：
-
-```bash
-swift run dclean scan
-```
-
-## 使用界面
+## 使用
 
 ### 1. 扫描
 
-打开后自动扫描，约 30–60 秒。菜单栏图标显示磁盘已用比例（如「清 72%」），点开弹窗可以看到推荐方案能腾出多少空间。
+打开后自动只读扫描，菜单栏图标显示磁盘已用比例（如「清 72%」）。点开弹窗能看到推荐方案：**预计立即释放**多少空间，另有多少会**移入恢复区**（移进恢复区的仍然占空间，到期清空后才真正腾出来）。
+
+想只扫自己的工作目录，可以在主窗口的「扫描范围」里添加项目目录和排除目录，设置会保存在本机。
 
 ### 2. 查看方案
 
-点「查看详情」打开主窗口。清理项分四档：
+主窗口左侧分为「项目清理」「应用与缓存」「扫描范围」「空间浏览」「历史与恢复」。清理项按风险分四档：
 
 | 档位 | 含义 | 默认 |
 |---|---|---|
 | 安全 | 包管理器缓存等，删了下次会自动重新下载 | 勾选 |
-| 建议 | IDE / 浏览器 / AI 工具缓存，闲置 90 天以上且有锁文件的项目产物 | 勾选 |
+| 建议 | IDE / 浏览器 / AI 工具缓存，闲置 90 天以上的项目产物 | 勾选 |
 | 需要确认 | 模型、本地仓库、闲置 30 天以上的项目产物等，删了可能要花较长时间恢复 | 不勾选 |
-| 只展示 | 会话记录、Docker 虚拟磁盘、未识别的大目录 | 不可勾选，只能在 Finder 中查看 |
+| 只展示 | 会话记录、Docker 虚拟磁盘、未识别的大目录 | 不可勾选 |
 
-每一项可以展开看说明和具体路径。项目产物只清理依赖与构建产物（`node_modules`、`.venv`、`target`、`build`、`Pods`、`DerivedData`、`__pycache__` 等），不会动源码。
+- **项目清理**：按项目列出依赖与构建产物，可以整个项目勾选，也可以只勾其中几项；支持搜索、按体积或闲置时间排序。不想被清理的目录可以设为「始终保留」。
+- **应用与缓存**：每一项可以看到是什么、删了有什么影响、会不会自动长回来，以及具体路径。
+- **空间浏览**：只读的目录占用条形图，可以一层层往下看大目录，不会删除任何东西。
 
-某项标着「被占用」或「需先退出 X」时，说明有程序正在使用它，这时清理会被跳过。
+标着「被占用」或「需先退出 X」的项，说明有程序正在使用它，这时清理会跳过它。
 
 ### 3. 确认并清理
 
-勾选好后点底部「清理已选」，会弹出确认单：
+点「清理已选」会弹出确认单，分别列出移入恢复区的项、不可还原的命令，以及需要先退出的应用。浏览器这类应用可以由工具代为正常退出；IDE、编辑器需要你自己保存后退出，不退出的话相关项会跳过。
 
-- **移入恢复区**：7 天内可以还原
-- **不可还原**（橙色）：由工具自带命令清理，例如 `npm cache clean --force`、`brew cleanup`，执行后无法撤回
-- **需要先退出的应用**：浏览器等可以由清理大师代为正常退出；IDE、编辑器、Claude 等需要你自己保存后退出，不退出则相关项跳过
+执行时逐项显示进度，可以随时「停止」，已经完成的不会回退。结果页显示卷可用空间的变化、移入恢复区的大小，以及跳过和失败的原因。
 
-点「开始清理」后逐项执行，可以随时「停止」（已完成的不回退）。某个应用 10 秒内没有退出，会询问你「强制退出」还是「跳过相关项」。
+### 4. 历史与恢复
 
-结果页显示实际腾出的空间（按清理前后可用空间计算）、跳过和失败的原因。点「完成」后会自动重新扫描。
+按批次列出每次清理，可以单项还原、整批还原，也可以还原到家目录内另一个空目录。
 
-### 4. 恢复区
-
-主窗口右上角进入。按批次列出，每一项都可以单独「还原」，也可以整批还原。
-
-- 还原不会覆盖原位置已有的内容
-- 超过 7 天的批次可以点「清空已到期」
+- 原位置已有内容时拒绝还原，不会覆盖
+- 超过 7 天的批次可以「清空已到期」
 - **「立即永久清空此批」会直接删除，不经过废纸篓，无法找回**，需要二次确认
 
-恢复区里的文件仍占用磁盘空间。要真正腾出空间，需要等到期后清空，或者手动永久清空。
-
-## 使用命令行
+## 命令行
 
 `dclean` 默认只读，不带 `--apply` 不会改动任何文件。
 
 ```bash
-# 只读扫描，按档位列出
-swift run dclean scan
-swift run dclean scan --json
-swift run dclean scan --no-space-map          # 跳过大目录分布，更快
-
-# 预览清理方案（不执行）
-swift run dclean clean
-swift run dclean clean --tiers safe
-swift run dclean clean --only npm-cache,pip-cache
-
-# 真正执行
-swift run dclean clean --tiers safe --apply
-swift run dclean clean --only chrome-http-cache --quit-apps --apply   # 允许代为正常退出应用（不会退出 IDE）
-
-# 恢复区
-swift run dclean recovery list
-swift run dclean recovery restore <批次ID>
-swift run dclean recovery purge               # 预览将被永久清空的到期批次
-swift run dclean recovery purge --apply       # 真正删除
-
-# 查看已加载的规则
-swift run dclean rules
+dclean scan                     # 只读扫描，按档位列出
+dclean scan --json
+dclean clean                    # 预览默认方案（不执行）
+dclean clean --tiers safe       # 只预览安全档
+dclean clean --tiers safe --apply                          # 真正执行
+dclean clean --only chrome-http-cache --quit-apps --apply  # 允许代为正常退出应用（不会退出 IDE）
+dclean recovery list
+dclean recovery restore <批次ID>
+dclean recovery purge           # 预览将被永久清空的到期批次
+dclean recovery purge --apply   # 真正删除
+dclean rules                    # 查看已加载的规则
 ```
 
-## 覆盖范围
+从源码运行时把 `dclean` 换成 `swift run dclean`。
 
-内置 29 条规则，`swift run dclean rules` 可以查看完整列表：
+## 能清理什么
 
+内置 29 条规则（`dclean rules` 可以看完整列表），另外会自动识别项目产物：
+
+- **项目产物**：`node_modules`、`.venv`、`target`、`build`、`dist`、`.next`、`Pods`、`DerivedData`、`__pycache__` 等，按项目最后活跃时间分档
 - **包管理器**：npm、pnpm、Bun、pip、uv、Poetry、Homebrew、CocoaPods、Gradle、Maven
 - **开发工具**：Xcode 编译缓存与真机调试文件、JetBrains、VS Code、Cursor
-- **AI 工具**：Claude 桌面端缓存与虚拟机镜像、Hugging Face 模型，以及 Codex / Claude Code 会话记录（只展示）
+- **AI 工具**：Claude 桌面端缓存与虚拟机镜像、Hugging Face 模型；Codex 和 Claude Code 的会话记录只展示，不清理
 - **浏览器**：Chrome、Edge 缓存与内置模型；Playwright、Puppeteer、Camoufox 浏览器
-- **项目产物**：自动识别家目录下各项目的依赖与构建产物，按最后活跃时间分档
-- **Docker**：仅在 Docker 已运行时列出构建缓存、启动失败的旧容器、未被使用的镜像，不会替你启动 Docker
+- **Docker**：只在 Docker 已运行时列出构建缓存、启动失败的旧容器、未被使用的镜像，不会替你启动 Docker
 
 ### 自定义规则
 
-在 `~/.dclean-v3/user-rules.json` 中添加规则，文件格式与内置规则包相同（见 [`Sources/CleanerCore/Engine/RulePack.json`](Sources/CleanerCore/Engine/RulePack.json)）：
+在 `~/.dclean-v3/user-rules.json` 中添加规则，文件格式与内置规则包相同（见 [`RulePack.json`](Sources/CleanerCore/Engine/RulePack.json)）：
 
 ```json
 {
@@ -151,18 +161,7 @@ swift run dclean rules
 }
 ```
 
-自定义规则有额外限制：档位固定为 `confirm`（需要确认，默认不勾选），动作只能是移入恢复区（`recover` 或 `recoverOlderThan`），不能执行命令，也不能暂停服务。
-
-规则会被逐条校验，指向根目录、家目录本身、隐私目录或使用通配的规则会被拒绝，拒绝原因可以用 `dclean rules` 查看。
-
-## 安全设计
-
-- **只清理规则明确列出的位置和识别出的项目产物**。不认识的目录只展示，不提供清理
-- **执行前逐项复核**：路径、符号链接、保护区域、闲置时间与扫描时不一致就跳过
-- **恢复区用同卷移动**，不复制；还原前核对内容摘要，内容变化或原位置已有内容则拒绝还原
-- **审计日志写不进去就停止**：清理和永久清空前都先写审计，写不进去就不动手（从恢复区还原目前不写审计）
-- **不会强制退出应用**，除非你在执行页面明确点了「强制退出」；IDE 与编辑器从不代为退出
-- 同一时间只允许一个清理任务运行
+自定义规则的档位固定为 `confirm`（需要确认，默认不勾选），动作只能是移入恢复区（`recover` 或 `recoverOlderThan`），不能执行命令。指向根目录、家目录本身、隐私目录或使用通配的规则会被拒绝，原因可以用 `dclean rules` 查看。
 
 ## 数据位置
 
@@ -173,13 +172,15 @@ swift run dclean rules
 | `~/.dclean-v3/user-rules.json` | 自定义规则（可选） |
 | `~/.dclean-v2/` | 保护位置设置与操作锁 |
 
-卸载：退出应用，删除 `~/Applications/清理大师V2.app`；确认恢复区里没有需要还原的内容后，再删除 `~/.dclean-v3`。
+**卸载**：退出应用，删除 `~/Applications/AI工具清理大师.app`。先确认恢复区里没有需要还原的内容，再删除 `~/.dclean-v3`。
 
 ## 开发
 
 ```bash
 swift build
 swift test
+Scripts/install-local.sh    # 构建并安装到 ~/Applications
+Scripts/make-release.sh     # 生成发行包 dist/AI-Disk-Clean-macos.zip
 ```
 
 | 目录 | 内容 |
@@ -188,6 +189,10 @@ swift test
 | `Sources/AppCore/` | 界面状态与逻辑（不依赖 AppKit，可单测） |
 | `Sources/DiskCleanerApp/` | 菜单栏与主窗口界面（AppKit + SwiftUI） |
 | `Sources/dclean/` | 命令行工具 |
-| `docs/specs/`、`docs/plans/` | 设计与实施计划 |
+| `docs/` | 设计、计划与验收记录 |
 
-新增规则请修改 `RulePack.json`，并在 `Tests/CleanerCoreTests` 中补充测试。
+新增规则请修改 `RulePack.json`，并在 `Tests/CleanerCoreTests` 中补充测试。欢迎提 Issue 告诉我们你的 AI 工具把空间占在了哪里。
+
+## 许可证
+
+[MIT](LICENSE)

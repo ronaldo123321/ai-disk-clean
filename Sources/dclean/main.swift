@@ -2,7 +2,7 @@ import Foundation
 import CleanerCore
 
 let usage = """
-清理大师命令行（默认只读；clean 加 --apply 才执行）
+AI工具清理大师命令行（默认只读；clean 加 --apply 才执行）
 
 用法:
   dclean scan [--json] [--no-projects] [--no-docker] [--no-space-map]

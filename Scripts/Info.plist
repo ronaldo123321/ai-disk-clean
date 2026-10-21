@@ -7,20 +7,21 @@
     <key>CFBundleIdentifier</key>
     <string>io.github.ronaldo123321.diskcleaner</string>
     <key>CFBundleName</key>
-    <string>DiskCleaner</string>
+    <string>AI工具清理大师</string>
     <key>CFBundleDisplayName</key>
-    <string>磁盘清理大师</string>
+    <string>AI工具清理大师</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <!-- 版本号由 build-app.sh 写入 -->
     <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
+    <string>0.0.0</string>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>0</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
-    <!-- make-v2-app.sh 安装时改为 false：在 Dock 显示，同时保留菜单栏图标 -->
+    <!-- 在 Dock 显示，同时保留菜单栏图标 -->
     <key>LSUIElement</key>
-    <true/>
+    <false/>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>

@@ -135,6 +135,21 @@ final class EngineRulePackTests: XCTestCase {
         XCTAssertEqual(String(decoding: data, as: UTF8.self), #"{"version":1,"platform":"macos","rules":[]}"#)
     }
 
+    func testSearchDirectoriesFollowSymlinkedExecutableIntoAppBundle() throws {
+        let dir = TestEnv.makeTempDir("symlinked-cli")
+        defer { TestEnv.remove(dir) }
+        let macOS = dir + "/X.app/Contents/MacOS"
+        try TestEnv.write("", to: macOS + "/dclean")
+        try FileManager.default.createDirectory(atPath: dir + "/bin", withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: dir + "/bin/dclean", withDestinationPath: macOS + "/dclean")
+
+        let dirs = RulePack.searchDirectories(resourceURL: nil, bundleURL: URL(fileURLWithPath: dir + "/bin"),
+                                              executableURL: URL(fileURLWithPath: dir + "/bin/dclean"))
+        let real = URL(fileURLWithPath: macOS).resolvingSymlinksInPath()
+        XCTAssertTrue(dirs.contains(real))
+        XCTAssertTrue(dirs.contains(real.deletingLastPathComponent().appendingPathComponent("Resources")))
+    }
+
     func testBundledDataWithoutResourceBundleOrFallbackIsNil() {
         let empty = TestEnv.makeTempDir("nopack")
         defer { TestEnv.remove(empty) }

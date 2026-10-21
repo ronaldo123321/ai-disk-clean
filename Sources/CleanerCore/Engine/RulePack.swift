@@ -35,7 +35,19 @@ public enum RulePack {
         #else
         let fallback: (() -> Bundle)? = nil
         #endif
-        return bundledData(searching: [mainBundle.resourceURL, mainBundle.bundleURL].compactMap { $0 }, fallback: fallback)
+        let dirs = searchDirectories(resourceURL: mainBundle.resourceURL, bundleURL: mainBundle.bundleURL,
+                                     executableURL: mainBundle.executableURL)
+        return bundledData(searching: dirs, fallback: fallback)
+    }
+
+    /// 发行包里 dclean 放在 .app 的 Contents/MacOS，用户常用符号链接把它放进 PATH；
+    /// 这时 Bundle.main 指向链接所在目录，所以还要按解析后的真实位置找（同目录及 ../Resources）。
+    static func searchDirectories(resourceURL: URL?, bundleURL: URL?, executableURL: URL?) -> [URL] {
+        var dirs = [resourceURL, bundleURL].compactMap { $0 }
+        if let realDir = executableURL?.resolvingSymlinksInPath().deletingLastPathComponent() {
+            dirs += [realDir, realDir.deletingLastPathComponent().appendingPathComponent("Resources")]
+        }
+        return dirs
     }
 
     /// 依次在各目录里找 DiskCleaner_CleanerCore.bundle，都没有才用 fallback

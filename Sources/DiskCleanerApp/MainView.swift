@@ -34,7 +34,7 @@ struct MainView: View {
             Divider()
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("清理大师", systemImage: "leaf.fill").font(.headline).padding(.bottom, 24)
+                    Label("AI工具清理大师", systemImage: "leaf.fill").font(.headline).padding(.bottom, 24)
                     ForEach(["项目清理", "应用与缓存", "扫描范围", "空间浏览", "历史与恢复"], id: \.self) { name in
                         Button { section = name } label: {
                             Text(name).frame(maxWidth: .infinity, alignment: .leading).padding(10)
